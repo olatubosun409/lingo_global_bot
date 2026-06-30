@@ -7,27 +7,7 @@ Deployed on Railway with GitHub integration
 import os
 import sys
 import logging
-import asyncio
 from typing import Dict, Optional, Any
-
-# ==================== FIX FOR PYTHON 3.13 ====================
-# Monkey patch to fix the Updater issue
-try:
-    import telegram.ext._updater
-    from telegram.ext._updater import Updater
-    
-    # Store original __init__
-    original_init = Updater.__init__
-    
-    def patched_init(self, *args, **kwargs):
-        # Call original init
-        original_init(self, *args, **kwargs)
-        # Manually set the missing attribute
-        self._Updater__polling_cleanup_cb = None
-    
-    Updater.__init__ = patched_init
-except Exception as e:
-    pass
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -231,7 +211,7 @@ class TranslationEngine:
             params = {
                 'q': text,
                 'langpair': f'{source_lang}|{target_lang}',
-                'de': 'your_email@example.com'  # Replace with your email for higher limits
+                'de': 'your_email@example.com'
             }
             
             response = self.session.get(url, params=params, timeout=10)
@@ -240,10 +220,8 @@ class TranslationEngine:
             if data.get('responseStatus') == 200:
                 translated_text = data.get('responseData', {}).get('translatedText', '')
                 if translated_text:
-                    # Detect source language (if auto)
                     detected_source = source_lang
                     if source_lang == 'auto':
-                        # Try to detect from response
                         detected_source = data.get('responseData', {}).get('detectedSourceLanguage', 'en')
                     
                     return {
@@ -254,7 +232,6 @@ class TranslationEngine:
                         'original': text
                     }
             
-            # If MyMemory fails, try fallback
             return self._translate_fallback(text, target_lang, source_lang)
             
         except Exception as e:
@@ -266,7 +243,6 @@ class TranslationEngine:
         try:
             import requests
             
-            # LibreTranslate API (free instance)
             url = "https://libretranslate.de/translate"
             payload = {
                 'q': text,
@@ -287,7 +263,6 @@ class TranslationEngine:
                     'original': text
                 }
             else:
-                # Ultimate fallback: return original text with note
                 return {
                     'success': False,
                     'error': 'All translation services unavailable',
@@ -349,8 +324,7 @@ def format_translation_response(result: Dict) -> str:
     source_name = get_language_name(source_lang)
     target_name = get_language_name(target_lang)
     
-    # Check if it's the same language
-    if source_lang == target_lang or source_lang == 'auto' and translated == original:
+    if source_lang == target_lang or (source_lang == 'auto' and translated == original):
         return f"""
 ℹ️ **Same Language Detected**
 
@@ -429,7 +403,6 @@ I'm your AI-powered translation assistant that can translate between **{len(LANG
 _Simply send me any text to get started!_
 """
     
-    # Create start keyboard
     keyboard = [
         [InlineKeyboardButton("🌐 Quick Language", callback_data='quick_lang')],
         [InlineKeyboardButton("📚 All Languages", callback_data='view_languages')],
@@ -441,7 +414,7 @@ _Simply send me any text to get started!_
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
-    help_text = """
+    help_text = f"""
 📖 **LingoGlobal Bot Help Guide**
 
 ---
@@ -490,7 +463,6 @@ Over {len(LANGUAGES)} languages including English, Spanish, French, German, Chin
 Use `/languages` to see the full list.
 """
     
-    # Create help keyboard
     keyboard = [
         [InlineKeyboardButton("🌐 Quick Language", callback_data='quick_lang')],
         [InlineKeyboardButton("📚 All Languages", callback_data='view_languages')]
@@ -550,14 +522,12 @@ async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Handle /translate command."""
     text_to_translate = None
     
-    # Check if replying to a message
     if update.message.reply_to_message:
         text_to_translate = update.message.reply_to_message.text
         if not text_to_translate:
             await update.message.reply_text("❌ The replied message doesn't contain any text to translate.")
             return
     
-    # Check if text is provided in command
     if not text_to_translate and context.args:
         text_to_translate = ' '.join(context.args)
     
@@ -573,16 +543,11 @@ async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     target_lang = context.user_data.get('target_lang', 'en')
     
     try:
-        # Show typing indicator
         await update.message.chat.send_action(action="typing")
         
-        # Translate
         result = translator.translate(text_to_translate, target_lang, 'auto')
-        
-        # Format response
         response = format_translation_response(result)
         
-        # Add quick language change button
         keyboard = [[InlineKeyboardButton("🌐 Change Language", callback_data='quick_lang')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -643,7 +608,6 @@ async def languages_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     page = context.user_data.get('lang_page', 0)
     response = format_languages_list(page)
     
-    # Add navigation buttons for pagination
     total_pages = (len(LANGUAGES) + 29) // 30
     
     if total_pages > 1:
@@ -677,7 +641,6 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     lang_code = context.args[0].lower()
     
-    # Check if language code is valid
     if lang_code in LANGUAGES:
         context.user_data['target_lang'] = lang_code
         lang_name = get_language_name(lang_code)
@@ -747,7 +710,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle regular text messages."""
     text = update.message.text
     
-    # Check if user is in language setup mode
     if context.user_data.get('awaiting_lang_setup'):
         lang_code = text.lower()
         if lang_code in LANGUAGES:
@@ -766,20 +728,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         return
     
-    # Get target language
     target_lang = context.user_data.get('target_lang', 'en')
     
     try:
-        # Show typing indicator
         await update.message.chat.send_action(action="typing")
         
-        # Translate
         result = translator.translate(text, target_lang, 'auto')
-        
-        # Format response
         response = format_translation_response(result)
         
-        # Add quick language change button
         keyboard = [[InlineKeyboardButton("🌐 Change Language", callback_data='quick_lang')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -801,7 +757,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     data = query.data
     
-    # Handle language setting
     if data.startswith('setlang_'):
         lang_code = data.replace('setlang_', '')
         if lang_code in LANGUAGES:
@@ -813,7 +768,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"Now send me any text to translate!"
             )
     
-    # Handle quick language menu
     elif data == 'quick_lang':
         keyboard = []
         row = []
@@ -836,7 +790,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             reply_markup=reply_markup
         )
     
-    # Handle view languages
     elif data == 'view_languages':
         page = 0
         response = format_languages_list(page)
@@ -855,7 +808,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(response, reply_markup=reply_markup)
     
-    # Handle language pagination
     elif data.startswith('lang_page_'):
         page = int(data.replace('lang_page_', ''))
         response = format_languages_list(page)
@@ -874,11 +826,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(response, reply_markup=reply_markup)
     
-    # Handle help menu
     elif data == 'help_menu':
         await help_command(update, context)
     
-    # Handle main menu
     elif data == 'main_menu':
         await start_command(update, context)
 
@@ -900,7 +850,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main() -> None:
     """Start the bot."""
-    # Get token from environment variable
     token = os.environ.get('TELEGRAM_BOT_TOKEN')
     
     if not token:
@@ -914,12 +863,10 @@ def main() -> None:
     logger.info(f"✅ TELEGRAM_BOT_TOKEN found (length: {len(token)} characters)")
     
     try:
-        # Create application with proper settings for Railway
         application = ApplicationBuilder() \
             .token(token) \
             .build()
         
-        # Add command handlers
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("about", about_command))
@@ -930,18 +877,14 @@ def main() -> None:
         application.add_handler(CommandHandler("quick", quick_command))
         application.add_handler(CommandHandler("setlang", setlang_command))
         
-        # Add callback handler for inline buttons
         application.add_handler(CallbackQueryHandler(button_callback))
         
-        # Add message handler for regular text
         application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
         )
         
-        # Add error handler
         application.add_error_handler(error_handler)
         
-        # Start polling with retry logic for Railway
         logger.info("✅ Bot started successfully! Press Ctrl+C to stop.")
         application.run_polling()
         
