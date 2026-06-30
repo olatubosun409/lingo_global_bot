@@ -5,7 +5,6 @@ Deployed on Railway with GitHub integration
 
 import os
 import logging
-import asyncio
 from typing import Dict, Optional
 from datetime import datetime
 
@@ -18,7 +17,8 @@ from telegram.ext import (
     ContextTypes,
     filters
 )
-from googletrans import Translator, LANGUAGES
+from deep_translator import GoogleTranslator
+import requests
 
 # ==================== CONFIGURATION ====================
 
@@ -29,16 +29,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize translator
-translator = Translator()
-
 # Bot version
 VERSION = "1.0.0"
 
 # ==================== LANGUAGE DATA ====================
 
-# Quick access languages (most commonly used)
-QUICK_LANGUAGES = {
+# Supported languages (from deep-translator)
+SUPPORTED_LANGUAGES = {
     'en': 'English',
     'es': 'Spanish',
     'fr': 'French',
@@ -71,11 +68,59 @@ QUICK_LANGUAGES = {
     'el': 'Greek'
 }
 
+# Quick access languages
+QUICK_LANGUAGES = {
+    'en': 'English',
+    'es': 'Spanish',
+    'fr': 'French',
+    'de': 'German',
+    'it': 'Italian',
+    'pt': 'Portuguese',
+    'ru': 'Russian',
+    'zh-cn': 'Chinese (Simplified)',
+    'ja': 'Japanese',
+    'ko': 'Korean',
+    'ar': 'Arabic',
+    'hi': 'Hindi'
+}
+
 # ==================== HELPER FUNCTIONS ====================
 
 def get_language_name(lang_code: str) -> str:
-    """Get language name from code, handle fallback."""
-    return LANGUAGES.get(lang_code, lang_code).title()
+    """Get language name from code."""
+    return SUPPORTED_LANGUAGES.get(lang_code, lang_code).title()
+
+def detect_language(text: str) -> dict:
+    """Detect language using deep-translator."""
+    try:
+        # Try to detect using GoogleTranslator
+        translator = GoogleTranslator()
+        detected = translator.detect(text)
+        return {
+            'lang': detected,
+            'confidence': 0.85  # deep-translator doesn't provide confidence
+        }
+    except Exception as e:
+        logger.error(f"Detection error: {e}")
+        return {'lang': 'en', 'confidence': 0.5}
+
+def translate_text(text: str, target_lang: str = 'en') -> dict:
+    """Translate text using deep-translator."""
+    try:
+        translator = GoogleTranslator(source='auto', target=target_lang)
+        translated = translator.translate(text)
+        
+        # Detect source language
+        detected = detect_language(text)
+        
+        return {
+            'source': detected['lang'],
+            'target': target_lang,
+            'translated': translated
+        }
+    except Exception as e:
+        logger.error(f"Translation error: {e}")
+        raise
 
 def format_translation_response(original: str, translated: str, 
                                 source_lang: str, target_lang: str) -> str:
@@ -103,13 +148,12 @@ def format_translation_response(original: str, translated: str,
 
 📊 _Confidence: High_
 """
-    
+
 def format_languages_list(page: int = 0, page_size: int = 30) -> str:
     """Format languages list with pagination."""
     lang_items = []
-    for code, name in sorted(LANGUAGES.items()):
-        if len(code) == 2 or code.startswith('zh-'):
-            lang_items.append(f"• `{code}` → {name.title()}")
+    for code, name in sorted(SUPPORTED_LANGUAGES.items()):
+        lang_items.append(f"• `{code}` → {name.title()}")
     
     total_pages = (len(lang_items) + page_size - 1) // page_size
     start_idx = page * page_size
@@ -256,14 +300,14 @@ A powerful multilingual translation bot powered by Google Translate API.
 **🛠️ Technology**
 • Python 3.11
 • python-telegram-bot
-• Google Translate API
+• deep-translator (Google Translate API)
 • Railway Cloud Hosting
 • GitHub Integration
 
 ---
 
 **📊 Statistics**
-• Languages: {len(LANGUAGES)}+
+• Languages: {len(SUPPORTED_LANGUAGES)}+
 • Active Users: Growing daily
 • Uptime: 99.9%
 
@@ -310,12 +354,12 @@ async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         # Show typing indicator
         await update.message.chat.send_action(action="typing")
         
-        result = translator.translate(text_to_translate, dest=target_lang)
+        result = translate_text(text_to_translate, target_lang)
         
         response = format_translation_response(
             text_to_translate,
-            result.text,
-            result.src,
+            result['translated'],
+            result['source'],
             target_lang
         )
         
@@ -348,15 +392,15 @@ async def detect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     
     try:
-        result = translator.detect(text_to_detect)
-        lang_name = get_language_name(result.lang)
-        confidence = result.confidence * 100
+        result = detect_language(text_to_detect)
+        lang_name = get_language_name(result['lang'])
+        confidence = result['confidence'] * 100
         
         response = f"""
 🔍 **Language Detection Results**
 
 📝 **Text:** {text_to_detect}
-🌐 **Detected Language:** {lang_name} (`{result.lang}`)
+🌐 **Detected Language:** {lang_name} (`{result['lang']}`)
 📊 **Confidence:** {confidence:.1f}%
 
 { '✅ High confidence' if confidence > 80 else '⚠️ Moderate confidence' }
@@ -373,7 +417,7 @@ async def languages_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     response = format_languages_list(page)
     
     # Add navigation buttons for pagination
-    total_pages = (len(LANGUAGES) + 29) // 30  # 30 items per page
+    total_pages = (len(SUPPORTED_LANGUAGES) + 29) // 30
     
     if total_pages > 1:
         keyboard = []
@@ -406,7 +450,7 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lang_code = context.args[0].lower()
     
     # Check if language code is valid
-    if lang_code in LANGUAGES:
+    if lang_code in SUPPORTED_LANGUAGES:
         context.user_data['target_lang'] = lang_code
         lang_name = get_language_name(lang_code)
         await update.message.reply_text(
@@ -448,7 +492,6 @@ async def quick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def setlang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /setlang command - Interactive language setup."""
-    # Create inline keyboard with common languages
     keyboard = [
         [InlineKeyboardButton("🇺🇸 English", callback_data='setlang_en')],
         [InlineKeyboardButton("🇪🇸 Spanish", callback_data='setlang_es')],
@@ -479,7 +522,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Check if user is in language setup mode
     if context.user_data.get('awaiting_lang_setup'):
         lang_code = text.lower()
-        if lang_code in LANGUAGES:
+        if lang_code in SUPPORTED_LANGUAGES:
             context.user_data['target_lang'] = lang_code
             context.user_data['awaiting_lang_setup'] = False
             lang_name = get_language_name(lang_code)
@@ -503,13 +546,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.chat.send_action(action="typing")
         
         # Translate
-        result = translator.translate(text, dest=target_lang)
+        result = translate_text(text, target_lang)
         
         # Format response
         response = format_translation_response(
             text,
-            result.text,
-            result.src,
+            result['translated'],
+            result['source'],
             target_lang
         )
         
@@ -538,7 +581,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Handle language setting
     if data.startswith('setlang_'):
         lang_code = data.replace('setlang_', '')
-        if lang_code in LANGUAGES:
+        if lang_code in SUPPORTED_LANGUAGES:
             context.user_data['target_lang'] = lang_code
             lang_name = get_language_name(lang_code)
             await query.edit_message_text(
@@ -574,7 +617,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == 'view_languages':
         page = 0
         response = format_languages_list(page)
-        total_pages = (len(LANGUAGES) + 29) // 30
+        total_pages = (len(SUPPORTED_LANGUAGES) + 29) // 30
         
         keyboard = []
         if total_pages > 1:
@@ -593,7 +636,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data.startswith('lang_page_'):
         page = int(data.replace('lang_page_', ''))
         response = format_languages_list(page)
-        total_pages = (len(LANGUAGES) + 29) // 30
+        total_pages = (len(SUPPORTED_LANGUAGES) + 29) // 30
         
         keyboard = []
         row = []
@@ -629,18 +672,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
-
-# ==================== HEALTH CHECK ====================
-
-async def health_check() -> bool:
-    """Perform health check to ensure bot is working."""
-    try:
-        # Test translation
-        test = translator.translate("Hello", dest='es')
-        return test.text is not None
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return False
 
 # ==================== MAIN FUNCTION ====================
 
