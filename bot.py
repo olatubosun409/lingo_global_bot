@@ -7,8 +7,27 @@ Deployed on Railway with GitHub integration
 import os
 import sys
 import logging
-from typing import Dict, Optional
-from datetime import datetime
+import asyncio
+from typing import Dict, Optional, Any
+
+# ==================== FIX FOR PYTHON 3.13 ====================
+# Monkey patch to fix the Updater issue
+try:
+    import telegram.ext._updater
+    from telegram.ext._updater import Updater
+    
+    # Store original __init__
+    original_init = Updater.__init__
+    
+    def patched_init(self, *args, **kwargs):
+        # Call original init
+        original_init(self, *args, **kwargs)
+        # Manually set the missing attribute
+        self._Updater__polling_cleanup_cb = None
+    
+    Updater.__init__ = patched_init
+except Exception as e:
+    pass
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -876,18 +895,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
-
-# ==================== HEALTH CHECK ====================
-
-async def health_check() -> bool:
-    """Perform health check to ensure bot is working."""
-    try:
-        # Test translation
-        test = translator.translate("Hello", 'es')
-        return test.get('success', False)
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return False
 
 # ==================== MAIN FUNCTION ====================
 
