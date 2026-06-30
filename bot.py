@@ -5,9 +5,9 @@ Deployed on Railway with GitHub integration
 """
 
 import os
+import sys
 import logging
-import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,7 +25,10 @@ from telegram.ext import (
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -874,6 +877,18 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
 
+# ==================== HEALTH CHECK ====================
+
+async def health_check() -> bool:
+    """Perform health check to ensure bot is working."""
+    try:
+        # Test translation
+        test = translator.translate("Hello", 'es')
+        return test.get('success', False)
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return False
+
 # ==================== MAIN FUNCTION ====================
 
 def main() -> None:
@@ -884,9 +899,12 @@ def main() -> None:
     if not token:
         logger.error("❌ TELEGRAM_BOT_TOKEN environment variable not set!")
         logger.error("Please set it in Railway environment variables.")
-        return
+        logger.error("Go to Railway Dashboard → Variables → Add Variable")
+        logger.error("Key: TELEGRAM_BOT_TOKEN, Value: <your-token-from-BotFather>")
+        sys.exit(1)
     
     logger.info("🚀 Starting LingoGlobal Bot...")
+    logger.info(f"✅ TELEGRAM_BOT_TOKEN found (length: {len(token)} characters)")
     
     try:
         # Create application with proper settings for Railway
@@ -917,7 +935,7 @@ def main() -> None:
         application.add_error_handler(error_handler)
         
         # Start polling with retry logic for Railway
-        logger.info("✅ Bot started successfully!")
+        logger.info("✅ Bot started successfully! Press Ctrl+C to stop.")
         application.run_polling()
         
     except Exception as e:
